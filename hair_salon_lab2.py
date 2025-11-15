@@ -53,7 +53,7 @@ class ClientRepJson:
             start = n * (k - 1)
             end = n * k
             return self.clients[start:end]
-        return self.clients[0:0]
+        return []
 
     # e. Сортировка по выбранному полю (+)
     def sort_by(self, param: str):
@@ -74,15 +74,22 @@ class ClientRepJson:
             return 1
         return max(client.get_id() for client in self.clients) + 1
 
+    def _is_unique(self, client: Client) -> bool:
+        for c in self.clients:
+            if c.get_last_name() == client.get_last_name() and c.get_haircut_counter() == client.get_haircut_counter():
+                return False
+        return True
+
     # f. Добавление нового объекта (при добавлении сформировать новый ID)
     def add_client(self, client: Client):
-        client.set_id(self._generate_new_id())  # меняем id клиента на сформированный
-        self.clients.append(client)
-        self.write_all(self.file_path)
+        if self._is_unique(client):
+            client.set_id(self._generate_new_id())  # меняем id клиента на сформированный
+            self.clients.append(client)
+            self.write_all(self.file_path)
 
     # g. Замена элемента по ID
     def replace_by_id(self, client_id: int, new_client: Client) -> bool:
-        if client_id >= 0:
+        if client_id >= 0 and self._is_unique(new_client):
             for i in range(len(self.clients)):
                 if self.clients[i].get_id() == client_id:
                     self.clients[i] = new_client
