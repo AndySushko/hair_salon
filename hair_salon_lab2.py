@@ -123,50 +123,190 @@ class ClientRepJson:
 
 
 
-# Пример использования
-if __name__ == "__main__":
+# hair_salon_lab2_yaml.py
 
-    # a. Чтение всех значений из JSON файла)
-    repo = ClientRepJson("clients.json")
+# Стрелки в диаграммах подписывать
+import os
+from typing import List, Optional
 
-    # b. Запись всех значений в JSON файл
-    repo.write_all('write_clients.json')
+import yaml
+import hair_salon_lab1_task9
+from hair_salon_lab1_task9 import Client
+
+
+class Client_rep_yaml:
+
+    def __init__(self, file_path: str = "clients.yaml"):
+        self.file_path = file_path
+        self.clients: List[Client] = []
+        self.read_all()
+
+    # a. Чтение всех значений из файла
+    def read_all(self) -> None:
+        try:
+            if not os.path.exists(self.file_path):
+                print("Файл не найден. Создан пустой список клиентов.")
+                self.clients = []
+                return
+
+            with open(self.file_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+
+            if not data:
+                self.clients = []
+            else:
+                # ожидаем список словарей
+                self.clients = [Client(item) for item in data]
+
+        except Exception as e:
+            print(f"Ошибка при чтении YAML: {e}")
+            self.clients = []
+
+    # b. Запись всех значений в файл
+    def write_all(self, file_name: Optional[str] = None) -> None:
+        try:
+            path = file_name or self.file_path
+            data = [client.to_dict() for client in self.clients]
+            with open(path, "w", encoding="utf-8") as f:
+                yaml.safe_dump(
+                    data,
+                    f,
+                    allow_unicode=True,
+                    sort_keys=False,
+                    indent=2,
+                    default_flow_style=False,
+                )
+        except Exception as e:
+            print(f"Ошибка при записи YAML: {e}")
 
     # c. Получить объект по ID
-    client = repo.get_by_id(3)
-    if client:
-        print(f"Найден клиент по id = 3: {client}")
+    def get_by_id(self, client_id: int) -> Optional[Client]:
+        if client_id >= 0:
+            for c in self.clients:
+                if c.get_id() == client_id:
+                    return c
+        return None
 
-    # d. Получить список k по счёту n объектов (постранично)
-    pages = repo.get_k_n_short_list(3, 2)
-    print(f"Получить список 2 по счёту 3 объектов (постранично)")
-    for page in pages:
-        print(f"  {page}")
+    # d. get_k_n_short_list — получить список k-й страницы по n объектов
+    #    (например, вторые 20 элементов => k=2, n=20)
+    def get_k_n_short_list(self, k: int, n: int) -> List[Client]:
+        if n <= 0 or k <= 0 or not self.clients:
+            return []
+        start = (k - 1) * n
+        end = k * n
+        if start >= len(self.clients):
+            return []
+        return self.clients[start:end]
 
-    # e. Сортировка по выбранному полю
-    repo.sort_by('haircut')
-    print("\nПосле сортировки по количеству стрижек:")
-    repo.print_all()
+    # e. Сортировать по выбранному полю
+    # Поле предметной области: возьмём 'last_name' (фамилия).
+    # Также поддержим те же ключи, что и в JSON-версии: id, haircut, discount, last_name
+    def sort_by(self, param: str = "last_name") -> None:
+        key_fn = None
+        if param == "id":
+            key_fn = lambda x: x.get_id()
+        elif param == "haircut":
+            key_fn = lambda x: x.get_haircut_counter()
+        elif param == "discount":
+            key_fn = lambda x: x.get_discount()
+        elif param == "last_name":
+            key_fn = lambda x: x.get_last_name()
+        else:
+            print(f"Неизвестный параметр сортировки '{param}'. Использую 'last_name'.")
+            key_fn = lambda x: x.get_last_name()
 
-    # f. Добавить объект в список (при добавлении сформировать новый ID).
-    added_client = Client('tname', 'tsurname', 'tfathername', 99, 99, 99)
-    repo.add_client(added_client)
-    print("\nПосле добавления клиента:")
-    repo.print_all()
+        self.clients.sort(key=key_fn)
 
-    # g. Заменить элемент списка по ID.
-    replaced_client = Client('ttname', 'ttsurname', 'ttfathername', 98, 98, 98)
-    replace_result = repo.replace_by_id(9, replaced_client)
-    print(f"Получилось ли заменить по id(9):  {replace_result}")
-    print("\nПосле замены клиента:")
-    repo.print_all()
+    # Внутренний помощник — сформировать новый ID
+    def _generate_new_id(self) -> int:
+        if not self.clients:
+            return 1
+        return max(c.get_id() for c in self.clients) + 1
 
-    # h. Удалить элемент списка по ID.
-    del_result = repo.delete_by_id(9)
-    print(f"Получилось ли удалить по id(9):  {del_result}")
-    print("\nПосле удаления клиента:")
-    repo.print_all()
+    def _is_unique(self, client: Client) -> bool:
+        for c in self.clients:
+            if c.get_last_name() == client.get_last_name() and c.get_haircut_counter() == client.get_haircut_counter():
+                return False
+        return True
+
+    # f. Добавить объект в список (сформировать новый ID)
+    def add_client(self, client: Client) -> int:
+        if self._is_unique(client):
+            new_id = self._generate_new_id()
+            client.set_id(new_id)
+            self.clients.append(client)
+            self.write_all()  # сохраняем в основной файл
+            return new_id
+
+    # g. Заменить элемент списка по ID
+    def replace_by_id(self, client_id: int, new_client: Client) -> bool:
+        if client_id >= 0:
+            for i, c in enumerate(self.clients):
+                if c.get_id() == client_id:
+                    self.clients[i] = new_client
+                    self.clients[i].set_id(client_id)  # ID должен сохраниться
+                    self.write_all()
+                    return True
+        return False
+
+    # h. Удалить элемент списка по ID
+    def delete_by_id(self, client_id: int) -> bool:
+        if client_id >= 0:
+            for i, c in enumerate(self.clients):
+                if c.get_id() == client_id:
+                    del self.clients[i]
+                    self.write_all()
+                    return True
+        return False
 
     # i. Получить количество элементов
-    client_count = repo.get_count()
-    print(f"Количество клиентов: {client_count}")
+    def get_count(self) -> int:
+        return len(self.clients)
+
+    # Удобно: распечатать всё
+    def print_all(self) -> None:
+        if not self.clients:
+            print("Список клиентов пуст.")
+            return
+        for i, client in enumerate(self.clients):
+            print(f"{i}: {client}")
+
+
+# Доп. алиас в "кэмэл-кейсе", если понадобится
+ClientRepYaml = Client_rep_yaml
+
+
+if __name__ == "__main__":
+    # Пример использования
+    repo = Client_rep_yaml("clients.yaml")
+
+    # b. Запись всех значений в файл (копию)
+    repo.write_all("clients_copy.yaml")
+
+    # c. Поиск по ID
+    c = repo.get_by_id(3)
+    if c:
+        print("Найден клиент с id=3:", c)
+
+    # d. Вторая страница по 20 элементов
+    page = repo.get_k_n_short_list(k=2, n=20)
+    print(f"Страница 2 (по 20): найдено {len(page)} эл.")
+
+    # e. Сортировка по фамилии
+    repo.sort_by("last_name")
+    repo.print_all()
+
+    # f. Добавление (ID генерируется)
+    added = Client("Ivan", "Petrov", "Ivanovich", 3, 10, 5)
+    new_id = repo.add_client(added)
+    print("Добавлен клиент, id =", new_id)
+
+    # g. Замена по id
+    updated = Client("Petr", "Sidorov", "Petrovich", 7, 15, 10)
+    print("Замена по id:", new_id, repo.replace_by_id(new_id, updated))
+
+    # h. Удаление по id
+    print("Удаление по id:", new_id, repo.delete_by_id(new_id))
+
+    # i. Количество
+    print("Всего клиентов:", repo.get_count())
