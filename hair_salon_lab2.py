@@ -456,7 +456,8 @@ class ClientRepDBAdapter(ClientRepBase):
         self.read_all()
         super().print_all()
 
-# Декоратор
+
+# Декоратор для БД
 class ClientRepDBDecorator:
     def __init__(self, wrapped: ClientRepDB):
         self._wrapped = wrapped
@@ -518,6 +519,70 @@ class ClientRepDBDecorator:
 
         Благодаря этому декоратор "выглядит" как обычный ClientRepDB
         и его можно использовать в существующем коде вместо него.
+        """
+        return getattr(self._wrapped, name)
+
+
+# Декоратор для файлов
+class ClientRepFileDecorator:
+    def __init__(self, wrapped: ClientRepBase):
+        self._wrapped = wrapped
+
+    def get_k_n_short_list(
+        self,
+        k: int,
+        n: int,
+        filter_fn: Optional[Callable[[Client], bool]] = None,
+        sort_key: Optional[Callable[[Client], Any]] = None,
+        reverse: bool = False,
+    ) -> List[Client]:
+
+        if n <= 0 or k <= 0:
+            return []
+
+        # 1. Обновить данные из файла
+        self._wrapped.read_all()
+
+        # 2. Все клиенты
+        clients = list(self._wrapped.items)
+
+        # 3. Фильтрация
+        if filter_fn is not None:
+            clients = [c for c in clients if filter_fn(c)]
+
+        # 4. Сортировка
+        if sort_key is not None:
+            clients.sort(key=sort_key, reverse=reverse)
+
+        # 5. Пагинация
+        start = (k - 1) * n
+        end = start + n
+        return clients[start:end]
+
+    def get_count(
+        self,
+        filter_fn: Optional[Callable[[Client], bool]] = None,
+    ) -> int:
+        """
+        Расширенный get_count:
+
+        - Если filter_fn не задан, просто делегируем в базовый get_count()
+        - Если filter_fn задан, считаем только тех клиентов, кто ему соответствует.
+        """
+        # Обновляем список из файла
+        self._wrapped.read_all()
+
+        if filter_fn is None:
+            return self._wrapped.get_count()
+
+        return sum(1 for c in self._wrapped.items if filter_fn(c))
+
+    def __getattr__(self, name: str) -> Any:
+        """
+        Все остальные методы/атрибуты делегируем обёрнутому репозиторию.
+
+        Благодаря этому декоратор "выглядит" как обычный ClientRepBase
+        (ClientRepJson / ClientRepYaml) и его можно использовать вместо него.
         """
         return getattr(self._wrapped, name)
 
@@ -613,93 +678,27 @@ def initialize_database():
 
 
 if __name__ == "__main__":
-    # Создать базу + таблицу (если отсутствуют) и вставить клиента по умолчанию
-    initialize_database()
+    # Базовый JSON-репозиторий
+    base_repo = ClientRepJson("clients.json")
 
-    # Собираем DSN (Data Source Name)
-    DSN = (
-        f"dbname={TARGET_DB} "
-        f"user={POSTGRES_USER} "
-        f"password={POSTGRES_PASSWORD} "
-        f"host={POSTGRES_HOST} "
-        f"port={POSTGRES_PORT}"
-    )
+    # Оборачиваем в декоратор
+    repo = ClientRepFileDecorator(base_repo)
 
-    # Получаем одиночку соединения с БД
-    db_singleton = DatabaseConnection.get_instance(DSN)
-
-    # Работа репозитория через PostgreSQL с делегацией к одиночке
-    repo = ClientRepDB(db_singleton)
-    repo.clear_all()
-    repo = ClientRepDB(db_singleton)
-
-    print("Количество клиентов в БД:", repo.get_count())
-
-    # Добавим ещё клиентов
-    client = Client("Пётр", "Петров", "Петрович", 2, 5, 1)
-    client2 = Client("Максим", "Иванченко", "Петрович", 12, 12, 2)
-
-    new_id = repo.add(client)
-    new_id_2 = repo.add(client2)
-
-    # Получим по ID
-    c = repo.get_by_id(new_id)
-    print("Получен клиент:", c)
-
-    # Пагинация
-    page = repo.get_k_n_short_list(1, 2)
-    print(f"Первая страница (2 элемента): {page}")
-
-    # Замена клиента
-    updated_client = Client("Иван", "Обновленный", "Петрович", 3, 6, new_id)
-    if repo.replace_by_id(new_id, updated_client):
-        print("Клиент успешно обновлен")
-
-    # Удаление клиента
-    if repo.delete_by_id(new_id):
-        print("Клиент успешно удален")
-
-    print("Новое количество клиентов в БД:", repo.get_count())
-
-    repo.print_all()
-
-    # Через адаптер
-    # repo_adapter: ClientRepBase = ClientRepDBAdapter(repo)
-    # repo_adapter.print_all()
-
-    # Оборачиваем в декоратор для фильтрации/сортировки
-    repo_dec = ClientRepDBDecorator(repo)
-
-    repo_dec.clear_all()
-
-    # Добавим клиентов
-    client = Client("Пётр", "Петров", "Петрович", 2, 5, 1)
-    client2 = Client("Анна", "Иванова", "Сергеевна", 6, 15, 2)
-    client3 = Client("Максим", "Иванченко", "Петрович", 12, 12, 3)
-
-    new_id = repo_dec.add(client)
-    new_id_2 = repo_dec.add(client2)
-    new_id_3 = repo_dec.add(client3)
-
-    # Пример: фильтр по скидке >= 10
+    # Пример фильтра: только клиенты со скидкой >= 10
     big_discount = lambda c: c.get_discount() >= 10
 
-    print("Всего клиентов:", repo_dec.get_count())
-    print("Клиентов со скидкой >= 10:", repo_dec.get_count(filter_fn=big_discount))
+    print("Всего клиентов (без фильтра):", repo.get_count())
+    print("Клиентов со скидкой >= 10:", repo.get_count(filter_fn=big_discount))
 
-    # Первая страница по 2 клиента, фильтр + сортировка по фамилии
-    page = repo_dec.get_k_n_short_list(
+    # k-я страница, n элементов, фильтр + сортировка по фамилии
+    page = repo.get_k_n_short_list(
         k=1,
-        n=2,
+        n=5,
         filter_fn=big_discount,
         sort_key=lambda c: c.get_last_name(),
         reverse=False,
     )
+
     print("Страница с фильтром и сортировкой:")
-    for c in page:
-        print(c)
-
-    repo.print_all()
-
-    # Закрываем соединение с БД через одиночку
-    repo.close()
+    for client in page:
+        print(client)
