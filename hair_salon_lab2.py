@@ -159,7 +159,6 @@ class ClientRepYaml(ClientRepBase):
                 default_flow_style=False,
             )
 
-
 # Одиночка
 class DatabaseConnection:
     _instance: Optional["DatabaseConnection"] = None
@@ -332,7 +331,7 @@ class ClientRepDB:
         return count
 
     def close(self) -> None:
-        # Закрываем соединение через одиночку.
+        # Закрываем соединение через одиночку
         self.db.close()
 
     def get_all(self) -> List[Client]:
@@ -385,6 +384,78 @@ class ClientRepDB:
         except Exception as e:
             print(f"Ошибка при очистке таблицы: {e}")
             return False
+
+
+# Адаптер
+class ClientRepDBAdapter(ClientRepBase):
+    def __init__(self, db_repo: ClientRepDB):
+        # сохраняем "адаптируемый" объект, чтобы read_all() уже мог к нему обращаться
+        self.db_repo = db_repo
+        # file_path фиктивный, в БД он не используется
+        super().__init__(file_path=":db:")
+
+    # Переопределение чтения и записи
+    def read_all(self) -> None:
+        # Загрузка всех клиентов из БД в self.items для совместимости
+        clients = self.db_repo.get_all()
+        self.items = clients[:]
+
+    def write_all(self, file_name: Optional[str] = None) -> None:
+        self.db_repo.clear_all()
+        for client in self.items:
+            # БД сама генерирует ID (serial), поэтому можно не трогать id
+            new_id = self.db_repo.add(client)
+            client.set_id(new_id)
+
+    # Реализации абстрактных «крючков», но в адаптере они не используются,
+    # т.к. мы переписали read_all/write_all поверх.
+    def _load_from_storage(self) -> List[dict]:
+        return []
+
+    def _dump_to_storage(
+        self, data: List[dict], file_name: Optional[str] = None
+    ) -> None:
+        pass
+
+    # Перенаправление основных операций напрямую в ClientRepDB.
+    def get_by_id(self, client_id: int) -> Optional[Client]:
+        return self.db_repo.get_by_id(client_id)
+
+    def get_k_n_short_list(self, k: int, n: int) -> List[Client]:
+        return self.db_repo.get_k_n_short_list(k, n)
+
+    def add(self, client: Client) -> int:
+        self.read_all()
+        if not self._is_unique(client):
+            return -1
+        new_id = self.db_repo.add(client)
+        client.set_id(new_id)
+        self.read_all()
+        return new_id
+
+    def replace_by_id(self, client_id: int, new_client: Client) -> bool:
+        self.read_all()
+        if not self._is_unique(new_client):
+            return False
+        ok = self.db_repo.replace_by_id(client_id, new_client)
+        self.read_all()
+        return ok
+
+    def delete_by_id(self, client_id: int) -> bool:
+        ok = self.db_repo.delete_by_id(client_id)
+        self.read_all()
+        return ok
+
+    def get_count(self) -> int:
+        return self.db_repo.get_count()
+
+    def print_all(self):
+        # Можно либо использовать print_all БД-репозитория:
+        # self.db_repo.print_all()
+        # либо вызвать базовую реализацию, если хочется единый формат:
+        self.read_all()
+        super().print_all()
+
 
 
 POSTGRES_USER = "postgres"
@@ -475,6 +546,7 @@ def initialize_database():
     ensure_clients_table()
 
 
+
 if __name__ == "__main__":
     # Создать базу + таблицу (если отсутствуют) и вставить клиента по умолчанию
     initialize_database()
@@ -500,10 +572,10 @@ if __name__ == "__main__":
 
     # Добавим ещё клиентов
     client = Client("Пётр", "Петров", "Петрович", 2, 5, 1)
-    client3 = Client("Максим", "Иванченко", "Петрович", 12, 12, 2)
+    client2 = Client("Максим", "Иванченко", "Петрович", 12, 12, 2)
 
     new_id = repo.add(client)
-    new_id_3 = repo.add(client3)
+    new_id_2 = repo.add(client2)
 
     # Получим по ID
     c = repo.get_by_id(new_id)
@@ -525,6 +597,10 @@ if __name__ == "__main__":
     print("Новое количество клиентов в БД:", repo.get_count())
 
     repo.print_all()
+
+    # Через адаптер
+    repo_adapter: ClientRepBase = ClientRepDBAdapter(repo)
+    repo_adapter.print_all()
 
     # Закрываем соединение с БД через одиночку
     repo.close()
