@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Callable, Any
 import psycopg2
 from psycopg2 import sql
 import os
@@ -456,6 +456,71 @@ class ClientRepDBAdapter(ClientRepBase):
         self.read_all()
         super().print_all()
 
+# Декоратор
+class ClientRepDBDecorator:
+    def __init__(self, wrapped: ClientRepDB):
+        self._wrapped = wrapped
+
+    def get_k_n_short_list(
+        self,
+        k: int,
+        n: int,
+        filter_fn: Optional[Callable[[Client], bool]] = None,
+        sort_key: Optional[Callable[[Client], Any]] = None,
+        reverse: bool = False,
+    ) -> List[Client]:
+        """
+        Расширенный вариант пагинации:
+
+        1. Берём всех клиентов из БД (get_all)
+        2. Применяем filter_fn, если передан
+        3. Сортируем по sort_key, если передан
+        4. Возвращаем k-ю страницу по n элементов
+        """
+        if n <= 0 or k <= 0:
+            return []
+
+        # 1. Все клиенты
+        clients = self._wrapped.get_all()
+
+        # 2. Фильтрация
+        if filter_fn is not None:
+            clients = [c for c in clients if filter_fn(c)]
+
+        # 3. Сортировка
+        if sort_key is not None:
+            clients.sort(key=sort_key, reverse=reverse)
+
+        # 4. Пагинация
+        start = (k - 1) * n
+        end = start + n
+        return clients[start:end]
+
+    def get_count(
+        self,
+        filter_fn: Optional[Callable[[Client], bool]] = None,
+    ) -> int:
+        """
+        Расширенный get_count с фильтром:
+
+        - если filter_fn не задан — делегируем в ClientRepDB.get_count()
+        - если задан — считаем только тех клиентов, кто прошёл фильтр
+        """
+        if filter_fn is None:
+            return self._wrapped.get_count()
+
+        clients = self._wrapped.get_all()
+        return sum(1 for c in clients if filter_fn(c))
+
+    def __getattr__(self, name: str) -> Any:
+        """
+        Все остальные методы/атрибуты делегируем обёрнутому ClientRepDB.
+
+        Благодаря этому декоратор "выглядит" как обычный ClientRepDB
+        и его можно использовать в существующем коде вместо него.
+        """
+        return getattr(self._wrapped, name)
+
 
 
 POSTGRES_USER = "postgres"
@@ -599,8 +664,42 @@ if __name__ == "__main__":
     repo.print_all()
 
     # Через адаптер
-    repo_adapter: ClientRepBase = ClientRepDBAdapter(repo)
-    repo_adapter.print_all()
+    # repo_adapter: ClientRepBase = ClientRepDBAdapter(repo)
+    # repo_adapter.print_all()
+
+    # Оборачиваем в декоратор для фильтрации/сортировки
+    repo_dec = ClientRepDBDecorator(repo)
+
+    repo_dec.clear_all()
+
+    # Добавим клиентов
+    client = Client("Пётр", "Петров", "Петрович", 2, 5, 1)
+    client2 = Client("Анна", "Иванова", "Сергеевна", 6, 15, 2)
+    client3 = Client("Максим", "Иванченко", "Петрович", 12, 12, 3)
+
+    new_id = repo_dec.add(client)
+    new_id_2 = repo_dec.add(client2)
+    new_id_3 = repo_dec.add(client3)
+
+    # Пример: фильтр по скидке >= 10
+    big_discount = lambda c: c.get_discount() >= 10
+
+    print("Всего клиентов:", repo_dec.get_count())
+    print("Клиентов со скидкой >= 10:", repo_dec.get_count(filter_fn=big_discount))
+
+    # Первая страница по 2 клиента, фильтр + сортировка по фамилии
+    page = repo_dec.get_k_n_short_list(
+        k=1,
+        n=2,
+        filter_fn=big_discount,
+        sort_key=lambda c: c.get_last_name(),
+        reverse=False,
+    )
+    print("Страница с фильтром и сортировкой:")
+    for c in page:
+        print(c)
+
+    repo.print_all()
 
     # Закрываем соединение с БД через одиночку
     repo.close()
