@@ -160,10 +160,44 @@ class ClientRepYaml(ClientRepBase):
             )
 
 
-class ClientRepDB:
+# Одиночка
+class DatabaseConnection:
+    _instance: Optional["DatabaseConnection"] = None
+
     def __init__(self, dsn: str):
         self.dsn = dsn
         self.conn = psycopg2.connect(dsn)
+
+    @classmethod
+    def get_instance(cls, dsn: str) -> "DatabaseConnection":
+        """
+        Возвращает единственный экземпляр соединения с БД.
+        Если соединение ещё не создано — создаёт его.
+        """
+        if cls._instance is None:
+            cls._instance = cls(dsn)
+        return cls._instance
+
+    def get_connection(self):
+        """Вернуть объект соединения psycopg2."""
+        return self.conn
+
+    def close(self):
+        """Закрыть соединение и сбросить одиночку."""
+        if self.conn is not None:
+            self.conn.close()
+            self.conn = None
+        DatabaseConnection._instance = None
+
+
+class ClientRepDB:
+    def __init__(self, db: DatabaseConnection):
+        # Делегируем работу с соединением объекту-одиночке
+        self.db = db
+
+    @property
+    def conn(self):
+        return self.db.get_connection()
 
     # Преобразование строки из БД в dict для Client(d).
     def _row_to_dict(self, row) -> dict:
@@ -222,7 +256,7 @@ class ClientRepDB:
 
     # c. Добавить объект в список (при добавлении сформировать новый ID)
     def add(self, client: Client) -> int:
-        # ID генерируется автоматически в БД (SERIAL).
+        # ID генерируется автоматически в БД (SERIAL)
         with self.conn:
             with self.conn.cursor() as cur:
                 cur.execute(
@@ -297,11 +331,9 @@ class ClientRepDB:
             count = cur.fetchone()[0]
         return count
 
-    # Закрыть соединение с БД
     def close(self) -> None:
-        if self.conn:
-            self.conn.close()
-            self.conn = None
+        # Закрываем соединение через одиночку.
+        self.db.close()
 
     def get_all(self) -> List[Client]:
         with self.conn.cursor() as cur:
@@ -443,7 +475,6 @@ def initialize_database():
     ensure_clients_table()
 
 
-
 if __name__ == "__main__":
     # Создать базу + таблицу (если отсутствуют) и вставить клиента по умолчанию
     initialize_database()
@@ -457,21 +488,22 @@ if __name__ == "__main__":
         f"port={POSTGRES_PORT}"
     )
 
-    # Работа репозитория через PostgreSQL
-    repo = ClientRepDB(DSN)
+    # Получаем одиночку соединения с БД
+    db_singleton = DatabaseConnection.get_instance(DSN)
+
+    # Работа репозитория через PostgreSQL с делегацией к одиночке
+    repo = ClientRepDB(db_singleton)
     repo.clear_all()
-    repo = ClientRepDB(DSN)
+    repo = ClientRepDB(db_singleton)
 
     print("Количество клиентов в БД:", repo.get_count())
 
-    # Добавим клиента
+    # Добавим ещё клиентов
     client = Client("Пётр", "Петров", "Петрович", 2, 5, 1)
-    client2 = Client("Максим", "Иванченко", "Петрович", 12, 12, 2)
+    client3 = Client("Максим", "Иванченко", "Петрович", 12, 12, 2)
 
     new_id = repo.add(client)
-    new_id_2 = repo.add(client2)
-    print("Добавлен клиент с ID:", new_id)
-    print("Добавлен клиент с ID:", new_id_2)
+    new_id_3 = repo.add(client3)
 
     # Получим по ID
     c = repo.get_by_id(new_id)
@@ -494,4 +526,5 @@ if __name__ == "__main__":
 
     repo.print_all()
 
+    # Закрываем соединение с БД через одиночку
     repo.close()
