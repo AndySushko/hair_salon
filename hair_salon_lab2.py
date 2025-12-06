@@ -1,17 +1,19 @@
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import List, Optional, Callable, Any
+from typing import Any, Callable, List, Optional
+import json
+import os
+
 import psycopg2
 from psycopg2 import sql
-import os
-import json
 import yaml
 
 from hair_salon_lab1_task9 import Client
 
 
 class ClientRepBase(ABC):
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str) -> None:
         self.file_path = file_path
         self.items: List[Client] = []
         self.read_all()
@@ -57,6 +59,7 @@ class ClientRepBase(ABC):
         self.items.sort(key=key_fn)
 
     def _is_unique(self, client: Client) -> bool:
+        """Проверка уникальности клиента по (фамилия, количество стрижек)."""
         for c in self.items:
             if (
                 c.get_last_name() == client.get_last_name()
@@ -66,13 +69,14 @@ class ClientRepBase(ABC):
         return True
 
     # f. Добавить объект (сформировать новый ID)
-    def add(self, client: Client) -> int:
+    def add(self, client: Client) -> Optional[int]:
         if self._is_unique(client):
             new_id = self._generate_new_id()
             client.set_id(new_id)
             self.items.append(client)
             self.write_all()
             return new_id
+        return None
 
     # g. Заменить по ID
     def replace_by_id(self, client_id: int, new_client: Client) -> bool:
@@ -101,8 +105,8 @@ class ClientRepBase(ABC):
     def _generate_new_id(self) -> int:
         return max((c.get_id() for c in self.items), default=0) + 1
 
-    def print_all(self):
-        """Вывод всех клиентов"""
+    def print_all(self) -> None:
+        """Вывод всех клиентов."""
         if not self.items:
             print("Список клиентов пуст.")
             return
@@ -112,16 +116,20 @@ class ClientRepBase(ABC):
 
     # Абстрактные «крючки» для формата хранения
     @abstractmethod
-    def _load_from_storage(self) -> List[dict]: ...
+    def _load_from_storage(self) -> List[dict]:
+        raise NotImplementedError
 
     @abstractmethod
     def _dump_to_storage(
-        self, data: List[dict], file_name: Optional[str] = None
-    ) -> None: ...
+        self,
+        data: List[dict],
+        file_name: Optional[str] = None,
+    ) -> None:
+        raise NotImplementedError
 
 
 class ClientRepJson(ClientRepBase):
-    def __init__(self, file_path: str = "clients.json"):
+    def __init__(self, file_path: str = "clients.json") -> None:
         super().__init__(file_path)
 
     def _load_from_storage(self) -> List[dict]:
@@ -129,7 +137,9 @@ class ClientRepJson(ClientRepBase):
             return json.load(f) or []
 
     def _dump_to_storage(
-        self, data: List[dict], file_name: Optional[str] = None
+        self,
+        data: List[dict],
+        file_name: Optional[str] = None,
     ) -> None:
         path = file_name or self.file_path
         with open(path, "w", encoding="utf-8") as f:
@@ -137,7 +147,7 @@ class ClientRepJson(ClientRepBase):
 
 
 class ClientRepYaml(ClientRepBase):
-    def __init__(self, file_path: str = "clients.yaml"):
+    def __init__(self, file_path: str = "clients.yaml") -> None:
         super().__init__(file_path)
 
     def _load_from_storage(self) -> List[dict]:
@@ -146,7 +156,9 @@ class ClientRepYaml(ClientRepBase):
             return data or []
 
     def _dump_to_storage(
-        self, data: List[dict], file_name: Optional[str] = None
+        self,
+        data: List[dict],
+        file_name: Optional[str] = None,
     ) -> None:
         path = file_name or self.file_path
         with open(path, "w", encoding="utf-8") as f:
@@ -159,11 +171,13 @@ class ClientRepYaml(ClientRepBase):
                 default_flow_style=False,
             )
 
-# Одиночка
+
 class DatabaseConnection:
+    """Одиночка для работы с PostgreSQL."""
+
     _instance: Optional["DatabaseConnection"] = None
 
-    def __init__(self, dsn: str):
+    def __init__(self, dsn: str) -> None:
         self.dsn = dsn
         self.conn = psycopg2.connect(dsn)
 
@@ -177,11 +191,11 @@ class DatabaseConnection:
             cls._instance = cls(dsn)
         return cls._instance
 
-    def get_connection(self):
+    def get_connection(self) -> psycopg2.extensions.connection:
         """Вернуть объект соединения psycopg2."""
         return self.conn
 
-    def close(self):
+    def close(self) -> None:
         """Закрыть соединение и сбросить одиночку."""
         if self.conn is not None:
             self.conn.close()
@@ -190,16 +204,16 @@ class DatabaseConnection:
 
 
 class ClientRepDB:
-    def __init__(self, db: DatabaseConnection):
+    def __init__(self, db: DatabaseConnection) -> None:
         # Делегируем работу с соединением объекту-одиночке
         self.db = db
 
     @property
-    def conn(self):
+    def conn(self) -> psycopg2.extensions.connection:
         return self.db.get_connection()
 
     # Преобразование строки из БД в dict для Client(d).
-    def _row_to_dict(self, row) -> dict:
+    def _row_to_dict(self, row: Any) -> dict:
         return {
             "first_name": row[1],
             "last_name": row[2],
@@ -331,7 +345,7 @@ class ClientRepDB:
         return count
 
     def close(self) -> None:
-        # Закрываем соединение через одиночку
+        """Закрываем соединение через одиночку."""
         self.db.close()
 
     def get_all(self) -> List[Client]:
@@ -348,8 +362,8 @@ class ClientRepDB:
 
         return [Client(self._row_to_dict(r)) for r in rows]
 
-    # Вывод клиентов
-    def print_all(self):
+    def print_all(self) -> None:
+        """Красивый вывод клиентов из БД."""
         clients = self.get_all()
 
         if not clients:
@@ -358,7 +372,8 @@ class ClientRepDB:
 
         print("\n" + "=" * 60)
         print(
-            f"{'ID':<4} {'Фамилия':<15} {'Имя':<12} {'Отчество':<15} {'Стрижки':<8} {'Скидка':<6}"
+            f"{'ID':<4} {'Фамилия':<15} {'Имя':<12} "
+            f"{'Отчество':<15} {'Стрижки':<8} {'Скидка':<6}"
         )
         print("-" * 60)
 
@@ -373,49 +388,50 @@ class ClientRepDB:
             )
         print("=" * 60)
 
-    # Очистить таблицу clients
     def clear_all(self) -> bool:
+        """Очистить таблицу clients."""
         try:
             with self.conn:
                 with self.conn.cursor() as cur:
                     cur.execute("TRUNCATE TABLE clients RESTART IDENTITY CASCADE;")
                     print("Таблица clients очищена.")
                     return True
-        except Exception as e:
-            print(f"Ошибка при очистке таблицы: {e}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"Ошибка при очистке таблицы: {exc}")
             return False
 
 
-# Адаптер
 class ClientRepDBAdapter(ClientRepBase):
-    def __init__(self, db_repo: ClientRepDB):
-        # сохраняем "адаптируемый" объект, чтобы read_all() уже мог к нему обращаться
+    """Adapter: делает ClientRepDB совместимым с интерфейсом ClientRepBase."""
+
+    def __init__(self, db_repo: ClientRepDB) -> None:
+        # сохраняем "адаптируемый" объект, чтобы read_all уже мог к нему обращаться
         self.db_repo = db_repo
         # file_path фиктивный, в БД он не используется
         super().__init__(file_path=":db:")
 
     # Переопределение чтения и записи
     def read_all(self) -> None:
-        # Загрузка всех клиентов из БД в self.items для совместимости
+        """Загрузка всех клиентов из БД в self.items для совместимости."""
         clients = self.db_repo.get_all()
         self.items = clients[:]
 
     def write_all(self, file_name: Optional[str] = None) -> None:
+        """Синхронизировать self.items с БД (простой вариант: очистить и залить)."""
         self.db_repo.clear_all()
         for client in self.items:
-            # БД сама генерирует ID (serial), поэтому можно не трогать id
             new_id = self.db_repo.add(client)
             client.set_id(new_id)
 
-    # Реализации абстрактных «крючков», но в адаптере они не используются,
-    # т.к. мы переписали read_all/write_all поверх.
     def _load_from_storage(self) -> List[dict]:
         return []
 
     def _dump_to_storage(
-        self, data: List[dict], file_name: Optional[str] = None
+        self,
+        data: List[dict],
+        file_name: Optional[str] = None,
     ) -> None:
-        pass
+        return None
 
     # Перенаправление основных операций напрямую в ClientRepDB.
     def get_by_id(self, client_id: int) -> Optional[Client]:
@@ -449,17 +465,20 @@ class ClientRepDBAdapter(ClientRepBase):
     def get_count(self) -> int:
         return self.db_repo.get_count()
 
-    def print_all(self):
-        # Можно либо использовать print_all БД-репозитория:
-        # self.db_repo.print_all()
-        # либо вызвать базовую реализацию, если хочется единый формат:
+    def print_all(self) -> None:
         self.read_all()
         super().print_all()
 
 
-# Декоратор для БД
 class ClientRepDBDecorator:
-    def __init__(self, wrapped: ClientRepDB):
+    """
+    Декоратор для ClientRepDB.
+
+    Добавляет возможность передавать filter_fn и sort_key
+    в методы get_k_n_short_list и get_count.
+    """
+
+    def __init__(self, wrapped: ClientRepDB) -> None:
         self._wrapped = wrapped
 
     def get_k_n_short_list(
@@ -481,18 +500,14 @@ class ClientRepDBDecorator:
         if n <= 0 or k <= 0:
             return []
 
-        # 1. Все клиенты
         clients = self._wrapped.get_all()
 
-        # 2. Фильтрация
         if filter_fn is not None:
             clients = [c for c in clients if filter_fn(c)]
 
-        # 3. Сортировка
         if sort_key is not None:
             clients.sort(key=sort_key, reverse=reverse)
 
-        # 4. Пагинация
         start = (k - 1) * n
         end = start + n
         return clients[start:end]
@@ -502,7 +517,7 @@ class ClientRepDBDecorator:
         filter_fn: Optional[Callable[[Client], bool]] = None,
     ) -> int:
         """
-        Расширенный get_count с фильтром:
+        Расширенный get_count с фильтром.
 
         - если filter_fn не задан — делегируем в ClientRepDB.get_count()
         - если задан — считаем только тех клиентов, кто прошёл фильтр
@@ -523,9 +538,15 @@ class ClientRepDBDecorator:
         return getattr(self._wrapped, name)
 
 
-# Декоратор для файлов
 class ClientRepFileDecorator:
-    def __init__(self, wrapped: ClientRepBase):
+    """
+    Декоратор для репозиториев, работающих с файлами (ClientRepBase и его наследники).
+
+    Добавляет возможность передачи filter_fn и sort_key
+    в методы get_k_n_short_list и get_count.
+    """
+
+    def __init__(self, wrapped: ClientRepBase) -> None:
         self._wrapped = wrapped
 
     def get_k_n_short_list(
@@ -536,25 +557,27 @@ class ClientRepFileDecorator:
         sort_key: Optional[Callable[[Client], Any]] = None,
         reverse: bool = False,
     ) -> List[Client]:
+        """
+        Расширенная пагинация для файлового репозитория.
 
+        1. Обновляем items из файла (read_all)
+        2. Берём список клиентов
+        3. Применяем фильтр (если задан)
+        4. Применяем сортировку (если задана)
+        5. Возвращаем k-ю страницу по n элементов
+        """
         if n <= 0 or k <= 0:
             return []
 
-        # 1. Обновить данные из файла
         self._wrapped.read_all()
-
-        # 2. Все клиенты
         clients = list(self._wrapped.items)
 
-        # 3. Фильтрация
         if filter_fn is not None:
             clients = [c for c in clients if filter_fn(c)]
 
-        # 4. Сортировка
         if sort_key is not None:
             clients.sort(key=sort_key, reverse=reverse)
 
-        # 5. Пагинация
         start = (k - 1) * n
         end = start + n
         return clients[start:end]
@@ -569,7 +592,6 @@ class ClientRepFileDecorator:
         - Если filter_fn не задан, просто делегируем в базовый get_count()
         - Если filter_fn задан, считаем только тех клиентов, кто ему соответствует.
         """
-        # Обновляем список из файла
         self._wrapped.read_all()
 
         if filter_fn is None:
@@ -587,7 +609,6 @@ class ClientRepFileDecorator:
         return getattr(self._wrapped, name)
 
 
-
 POSTGRES_USER = "postgres"
 POSTGRES_PASSWORD = "***"
 POSTGRES_HOST = "localhost"
@@ -595,7 +616,7 @@ POSTGRES_PORT = 5432
 TARGET_DB = "hair_salon"
 
 
-def ensure_database_exists():
+def ensure_database_exists() -> None:
     """
     Подключаемся к postgres и убеждаемся, что база hair_salon существует.
     Если нет — создаём.
@@ -622,11 +643,10 @@ def ensure_database_exists():
     conn.close()
 
 
-def ensure_clients_table():
+def ensure_clients_table() -> None:
     """
     Создаёт таблицу clients, если её нет.
-    Если таблица пустая — сразу вставляет клиента:
-    (Иван, Иванов, Иванович, 4, 10, id = 1)
+    Если таблица пустая — сразу вставляет клиента по умолчанию.
     """
     conn = psycopg2.connect(
         dbname=TARGET_DB,
@@ -650,7 +670,6 @@ def ensure_clients_table():
                 """
             )
 
-            # проверяем, есть ли хоть один клиент
             cur.execute("SELECT COUNT(*) FROM clients;")
             count = cur.fetchone()[0]
 
@@ -671,26 +690,21 @@ def ensure_clients_table():
     print("Таблица clients готова.")
 
 
-def initialize_database():
+def initialize_database() -> None:
     ensure_database_exists()
     ensure_clients_table()
 
 
-
 if __name__ == "__main__":
-    # Базовый JSON-репозиторий
+    # Пример: работа с файловым репозиторием через декоратор
     base_repo = ClientRepJson("clients.json")
-
-    # Оборачиваем в декоратор
     repo = ClientRepFileDecorator(base_repo)
 
-    # Пример фильтра: только клиенты со скидкой >= 10
-    big_discount = lambda c: c.get_discount() >= 10
+    big_discount = lambda c: c.get_discount() >= 10  # noqa: E731
 
     print("Всего клиентов (без фильтра):", repo.get_count())
     print("Клиентов со скидкой >= 10:", repo.get_count(filter_fn=big_discount))
 
-    # k-я страница, n элементов, фильтр + сортировка по фамилии
     page = repo.get_k_n_short_list(
         k=1,
         n=5,
