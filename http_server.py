@@ -36,16 +36,13 @@ class AppHandler(BaseHTTPRequestHandler):
             return False
 
         name = self.path.replace("/static/", "", 1)
-        from static_files import MAIN_JS, NEW_CLIENT_JS, EDIT_CLIENT_JS
+        from static_files import MAIN_JS, CLIENT_FORM_JS
 
         if name == "main.js":
             self._send(200, "application/javascript; charset=utf-8", MAIN_JS.encode("utf-8"))
             return True
-        if name == "new_client.js":
-            self._send(200, "application/javascript; charset=utf-8", NEW_CLIENT_JS.encode("utf-8"))
-            return True
-        if name == "edit_client.js":
-            self._send(200, "application/javascript; charset=utf-8", EDIT_CLIENT_JS.encode("utf-8"))
+        if name == "client_form.js":
+            self._send(200, "application/javascript; charset=utf-8", CLIENT_FORM_JS.encode("utf-8"))
             return True
 
         self._send(404, "text/plain; charset=utf-8", b"not found")
@@ -76,27 +73,16 @@ class AppHandler(BaseHTTPRequestHandler):
             return
 
         payload = self._read_json()
-
-        # handler может ожидать payload + route params (id)
         result = handler(payload, **params) if params else handler(payload)
 
-        # HTML-ответ
+        # HTML ответ
         if isinstance(result, tuple) and len(result) == 3:
             code, ctype, body = result
             self._send(code, ctype, body.encode("utf-8"))
             return
 
-        # JSON-ответ
+        # JSON ответ (если где-то нужен)
         code, data = result
-        self._send(code, "application/json; charset=utf-8", json.dumps(data, ensure_ascii=False).encode("utf-8"))
-
-    def do_PUT(self):
-        handler, params = self.router.match("PUT", self.path)
-        if not handler:
-            self._send(404, "text/plain; charset=utf-8", b"not found")
-            return
-        payload = self._read_json()
-        code, data = handler(params["id"], payload)
         self._send(code, "application/json; charset=utf-8", json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
     def do_DELETE(self):

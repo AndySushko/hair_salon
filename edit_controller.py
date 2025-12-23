@@ -1,6 +1,6 @@
 # edit_controller.py
 from __future__ import annotations
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 import views
 from repo_adapter import IClientRepository
@@ -10,30 +10,22 @@ class EditClientController:
     def __init__(self, repo: IClientRepository) -> None:
         self.repo = repo
 
-    def edit_form(
-        self,
-        client_id: int,
-        errors: Optional[dict] = None,
-        values: Optional[dict] = None
-    ) -> Tuple[int, str, str]:
-        """
-        GET: если values не передали — берём из репозитория
-        POST fail: values передаются из payload, чтобы не терять ввод
-        """
-        if values is None:
-            c = self.repo.get(client_id)
-            if not c:
-                return 404, "text/html; charset=utf-8", views.not_found_page(f"Клиент {client_id} не найден")
-            values = c.to_dict()
+    def edit_form(self, client_id: int) -> Tuple[int, str, str]:
+        c = self.repo.get(client_id)
+        if not c:
+            return 404, "text/html; charset=utf-8", views.not_found_page(f"Клиент {client_id} не найден")
 
-        html = views.edit_client_page(client_id=client_id, errors=errors or {}, values=values or {})
+        html = views.client_form_page(
+            mode="edit",
+            client_id=client_id,
+            errors={},
+            values=c.to_dict(),
+            post_url=f"/clients/{client_id}/edit",
+            success_event="updated",
+        )
         return 200, "text/html; charset=utf-8", html
 
     def validate(self, payload: Dict[str, Any]) -> Tuple[bool, dict, dict]:
-        """
-        Валидация строго в контроллере.
-        Возвращает ok, cleaned, errors
-        """
         errors: Dict[str, str] = {}
         cleaned: Dict[str, Any] = {}
 
@@ -67,21 +59,36 @@ class EditClientController:
         return (len(errors) == 0), cleaned, errors
 
     def update(self, client_id: int, payload: Dict[str, Any]) -> Tuple[int, str, str]:
-        # проверим существование, чтобы корректно вернуть 404
         existing = self.repo.get(client_id)
         if not existing:
             return 404, "text/html; charset=utf-8", views.not_found_page(f"Клиент {client_id} не найден")
 
         ok, cleaned, errors = self.validate(payload)
         if not ok:
-            # отдаём форму с ошибками и введёнными значениями
-            return self.edit_form(client_id, errors=errors, values={**payload, "id": client_id})
+            html = views.client_form_page(
+                mode="edit",
+                client_id=client_id,
+                errors=errors,
+                values={**payload, "id": client_id},
+                post_url=f"/clients/{client_id}/edit",
+                success_event="updated",
+            )
+            return 200, "text/html; charset=utf-8", html
 
-        # update: если репозиторий может вернуть False при конфликте/неуникальности
         updated_ok = self.repo.update(client_id, cleaned)
         if not updated_ok:
-            errors["__all__"] = "Не удалось обновить (возможно, конфликт уникальности)"
-            return self.edit_form(client_id, errors=errors, values={**payload, "id": client_id})
+            html = views.client_form_page(
+                mode="edit",
+                client_id=client_id,
+                errors={"__all__": "Не удалось обновить (возможно, конфликт уникальности)"},
+                values={**payload, "id": client_id},
+                post_url=f"/clients/{client_id}/edit",
+                success_event="updated",
+            )
+            return 200, "text/html; charset=utf-8", html
 
-        html = views.edit_client_success_page(client_id)
-        return 200, "text/html; charset=utf-8", html
+        return 200, "text/html; charset=utf-8", views.form_success_page(
+            event_type="updated",
+            entity_id=client_id,
+            text=f"Клиент #{client_id} обновлён."
+        )

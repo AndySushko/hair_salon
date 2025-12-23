@@ -15,21 +15,18 @@ def build_router(main_ctrl: ClientController,
                  edit_ctrl: EditClientController) -> Router:
     r = Router()
 
-    # Главная страница
+    # Главная
     r.add("GET", "/", lambda: main_ctrl.index())
 
-    # Create window
+    # One window (same view), different controllers
     r.add("GET", "/clients/new", lambda: new_ctrl.new_form())
     r.add("POST", "/clients/new", lambda payload: new_ctrl.create(payload))
 
-    # Edit window (новая вкладка)
     r.add("GET", "/clients/<id>/edit", lambda id: edit_ctrl.edit_form(id))
     r.add("POST", "/clients/<id>/edit", lambda payload, id: edit_ctrl.update(id, payload))
 
-    # API для удаления (главная кнопка delete)
+    # delete on main
     r.add("DELETE", "/api/clients/<id>", lambda id: main_ctrl.api_delete(id))
-
-    # (опционально) если у тебя реализован details через SSE — можешь оставить отдельно
 
     return r
 
@@ -48,7 +45,6 @@ def main() -> None:
     edit_ctrl = EditClientController(repo)
 
     router = build_router(main_ctrl, new_ctrl, edit_ctrl)
-
     run("127.0.0.1", 8080, router)
 
 

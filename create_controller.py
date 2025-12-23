@@ -1,6 +1,6 @@
 # create_controller.py
 from __future__ import annotations
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 import views
 from repo_adapter import IClientRepository
@@ -10,19 +10,23 @@ class NewClientController:
     def __init__(self, repo: IClientRepository) -> None:
         self.repo = repo
 
-    def new_form(self, errors: Optional[dict] = None, values: Optional[dict] = None) -> Tuple[int, str, str]:
-        html = views.new_client_page(errors=errors or {}, values=values or {})
+    def new_form(self) -> Tuple[int, str, str]:
+        # пустая форма — логика контроллера (values пустые)
+        html = views.client_form_page(
+            mode="create",
+            client_id=None,
+            errors={},
+            values={},
+            post_url="/clients/new",
+            success_event="created",
+        )
         return 200, "text/html; charset=utf-8", html
 
     def validate(self, payload: Dict[str, Any]) -> Tuple[bool, dict, dict]:
-        """
-        Валидация в контроллере (обязательно).
-        Возвращает ok, cleaned, errors
-        """
         errors: Dict[str, str] = {}
         cleaned: Dict[str, Any] = {}
 
-        def req_str(key: str, max_len: int = 60):
+        def req_str(key: str, max_len: int = 60) -> None:
             v = (payload.get(key) or "").strip()
             if not v:
                 errors[key] = "Обязательное поле"
@@ -31,7 +35,7 @@ class NewClientController:
             else:
                 cleaned[key] = v
 
-        def req_int(key: str, min_v: int, max_v: int):
+        def req_int(key: str, min_v: int, max_v: int) -> None:
             raw = payload.get(key)
             try:
                 v = int(raw)
@@ -54,14 +58,31 @@ class NewClientController:
     def create(self, payload: Dict[str, Any]) -> Tuple[int, str, str]:
         ok, cleaned, errors = self.validate(payload)
         if not ok:
-            return self.new_form(errors=errors, values=payload)
+            html = views.client_form_page(
+                mode="create",
+                client_id=None,
+                errors=errors,
+                values=payload,
+                post_url="/clients/new",
+                success_event="created",
+            )
+            return 200, "text/html; charset=utf-8", html
 
         try:
             new_id = self.repo.create(cleaned)
         except ValueError:
-            errors["__all__"] = "Такой клиент уже существует (не уникален)"
-            return self.new_form(errors=errors, values=payload)
+            html = views.client_form_page(
+                mode="create",
+                client_id=None,
+                errors={"__all__": "Такой клиент уже существует (не уникален)"},
+                values=payload,
+                post_url="/clients/new",
+                success_event="created",
+            )
+            return 200, "text/html; charset=utf-8", html
 
-        # Успех: HTML со скриптом, который уведомит главную вкладку и закроет окно
-        html = views.new_client_success_page(new_id)
-        return 201, "text/html; charset=utf-8", html
+        return 201, "text/html; charset=utf-8", views.form_success_page(
+            event_type="created",
+            entity_id=new_id,
+            text=f"Клиент создан. ID: {new_id}"
+        )
