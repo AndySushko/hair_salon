@@ -2,44 +2,58 @@
 MAIN_JS = r"""
 (function () {
   const table = document.getElementById("clientsTable");
-  const form = document.getElementById("createForm");
 
-  table.addEventListener("click", async (e) => {
-    const tr = e.target.closest("tr");
-    if (!tr) return;
-    const id = tr.getAttribute("data-id");
-
-    if (e.target.classList.contains("delbtn")) {
-      await fetch(`/api/clients/${id}`, { method: "DELETE" });
-      location.reload();
-      return;
-    }
-
-    if (e.target.classList.contains("rowlink")) {
-      window.open(`/clients/${id}`, "_blank"); // новая вкладка/окно
-    }
-  });
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(form).entries());
-    const res = await fetch("/api/clients", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+  // открыть окно создания
+  const openBtn = document.getElementById("openCreate");
+  if (openBtn) {
+    openBtn.addEventListener("click", () => {
+      window.open("/clients/new", "_blank");
     });
-    if (!res.ok) {
-      alert("Ошибка создания (возможно клиент не уникален)");
-      return;
+  }
+
+  // обновить главную при успешном создании в другой вкладке
+  try {
+    const bc = new BroadcastChannel("clients_channel");
+    bc.onmessage = (ev) => {
+      if (ev.data && ev.data.type === "created") {
+        location.reload();
+      }
+    };
+  } catch (e) {}
+
+  // запасной вариант
+  window.addEventListener("message", (ev) => {
+    if (ev.data && ev.data.type === "created") {
+      location.reload();
     }
-    location.reload();
   });
+
+  // delete / open details
+  if (table) {
+    table.addEventListener("click", async (e) => {
+      const tr = e.target.closest("tr");
+      if (!tr) return;
+      const id = tr.getAttribute("data-id");
+
+      if (e.target.classList.contains("delbtn")) {
+        await fetch(`/api/clients/${id}`, { method: "DELETE" });
+        location.reload();
+        return;
+      }
+
+      if (e.target.classList.contains("rowlink")) {
+        window.open(`/clients/${id}`, "_blank");
+      }
+    });
+  }
 })();
 """
 
 DETAILS_JS = r"""
 (function () {
-  const id = window.__DETAILS__.client_id;
+  const id = window.__DETAILS__?.client_id;
+  if (!id) return;
+
   const card = document.getElementById("card");
   const form = document.getElementById("updateForm");
 
@@ -52,7 +66,6 @@ DETAILS_JS = r"""
         <div>Скидка: ${c.discount}%</div>
       </div>
     `;
-    // заполнить форму
     form.last_name.value = c.last_name;
     form.first_name.value = c.first_name;
     form.father_name.value = c.father_name;
@@ -66,12 +79,8 @@ DETAILS_JS = r"""
 
   // Observer через SSE:
   const es = new EventSource(`/api/clients/${id}/subscribe`);
-  es.addEventListener("client", (ev) => {
-    renderClient(JSON.parse(ev.data));
-  });
-  es.addEventListener("deleted", () => {
-    renderDeleted();
-  });
+  es.addEventListener("client", (ev) => renderClient(JSON.parse(ev.data)));
+  es.addEventListener("deleted", () => renderDeleted());
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -82,7 +91,34 @@ DETAILS_JS = r"""
       body: JSON.stringify(data),
     });
     if (!res.ok) alert("Ошибка обновления (возможно клиент не уникален)");
-    // карточка обновится через SSE notify из контроллера
+  });
+})();
+"""
+
+NEW_CLIENT_JS = r"""
+(function () {
+  const form = document.getElementById("createForm");
+  const closeBtn = document.getElementById("closeWin");
+
+  if (closeBtn) closeBtn.addEventListener("click", (e) => { e.preventDefault(); window.close(); });
+
+  if (!form) return;
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(form).entries());
+
+    const res = await fetch("/clients/new", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+
+    // сервер возвращает HTML (форма с ошибками или success page)
+    const html = await res.text();
+    document.open();
+    document.write(html);
+    document.close();
   });
 })();
 """

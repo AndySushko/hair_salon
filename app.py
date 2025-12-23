@@ -3,41 +3,51 @@ from __future__ import annotations
 import os
 
 from controller import ClientController
+from create_controller import NewClientController
 from repo_adapter import build_repository
 from router import Router
 from http_server import run
 
 
-def build_router(ctrl: ClientController) -> Router:
+def build_router(main_ctrl: ClientController, new_ctrl: NewClientController) -> Router:
     r = Router()
+
     # страницы
-    r.add("GET", "/", lambda: ctrl.index())
-    r.add("GET", "/clients/<id>", lambda id: ctrl.details(id))
+    r.add("GET", "/", lambda: main_ctrl.index())
+    r.add("GET", "/clients/<id>", lambda id: main_ctrl.details(id))  # если details не нужен — можешь убрать
+    r.add("GET", "/clients/new", lambda: new_ctrl.new_form())
 
-    # API
-    r.add("GET", "/api/clients/<id>", lambda id: (lambda code, data: (code, "application/json; charset=utf-8", __import__("json").dumps(data, ensure_ascii=False)))(*ctrl.api_get(id)))
-    r.add("POST", "/api/clients", lambda payload: ctrl.api_create(payload))
-    r.add("PUT", "/api/clients/<id>", lambda id, payload: ctrl.api_update(id, payload))
-    r.add("DELETE", "/api/clients/<id>", lambda id: ctrl.api_delete(id))
+    # создание (HTML ответ)
+    r.add("POST", "/clients/new", lambda payload: new_ctrl.create(payload))
 
-    # Observer endpoint
-    r.add("GET", "/api/clients/<id>/subscribe", lambda id, writer=None: None)  # match нужен
+    # API (если у тебя есть эти методы в ClientController)
+    r.add("POST", "/api/clients", lambda payload: main_ctrl.api_create(payload))
+    r.add("GET", "/api/clients/<id>", lambda id: main_ctrl.api_get(id))
+    r.add("PUT", "/api/clients/<id>", lambda id, payload: main_ctrl.api_update(id, payload))
+    r.add("DELETE", "/api/clients/<id>", lambda id: main_ctrl.api_delete(id))
+    r.add("GET", "/api/clients/<id>/subscribe", lambda id, writer=None: None)  # будет заменено ниже
+
     return r
 
 
 def main() -> None:
     os.makedirs("data", exist_ok=True)
-    if not os.path.exists("data/clients.json"):
-        with open("data/clients.json", "w", encoding="utf-8") as f:
+
+    # гарантируем корректный JSON (если файл пустой)
+    path = "data/clients.json"
+    if (not os.path.exists(path)) or os.path.getsize(path) == 0:
+        with open(path, "w", encoding="utf-8") as f:
             f.write("[]")
 
     repo = build_repository()
-    ctrl = ClientController(repo)
-    router = build_router(ctrl)
+    main_ctrl = ClientController(repo)
+    new_ctrl = NewClientController(repo)
 
-    # Router matcher мы отдадим handler, но http_server вызовет handler(params["id"], writer))
+    router = build_router(main_ctrl, new_ctrl)
+
+    # Реальный обработчик SSE subscribe
     def subscribe_handler(id: int, writer):
-        return ctrl.sse_subscribe(id, writer)
+        return main_ctrl.sse_subscribe(id, writer)
 
     router.routes = [rt for rt in router.routes if rt.path != "/api/clients/<id>/subscribe"]
     router.add("GET", "/api/clients/<id>/subscribe", subscribe_handler)

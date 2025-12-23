@@ -1,0 +1,67 @@
+# create_controller.py
+from __future__ import annotations
+from typing import Any, Dict, Optional, Tuple
+
+import views
+from repo_adapter import IClientRepository
+
+
+class NewClientController:
+    def __init__(self, repo: IClientRepository) -> None:
+        self.repo = repo
+
+    def new_form(self, errors: Optional[dict] = None, values: Optional[dict] = None) -> Tuple[int, str, str]:
+        html = views.new_client_page(errors=errors or {}, values=values or {})
+        return 200, "text/html; charset=utf-8", html
+
+    def validate(self, payload: Dict[str, Any]) -> Tuple[bool, dict, dict]:
+        """
+        Валидация в контроллере (обязательно).
+        Возвращает ok, cleaned, errors
+        """
+        errors: Dict[str, str] = {}
+        cleaned: Dict[str, Any] = {}
+
+        def req_str(key: str, max_len: int = 60):
+            v = (payload.get(key) or "").strip()
+            if not v:
+                errors[key] = "Обязательное поле"
+            elif len(v) > max_len:
+                errors[key] = f"Слишком длинно (>{max_len})"
+            else:
+                cleaned[key] = v
+
+        def req_int(key: str, min_v: int, max_v: int):
+            raw = payload.get(key)
+            try:
+                v = int(raw)
+            except Exception:
+                errors[key] = "Должно быть целым числом"
+                return
+            if v < min_v or v > max_v:
+                errors[key] = f"Допустимо {min_v}..{max_v}"
+            else:
+                cleaned[key] = v
+
+        req_str("last_name")
+        req_str("first_name")
+        req_str("father_name")
+        req_int("haircut_counter", 0, 10_000)
+        req_int("discount", 0, 100)
+
+        return (len(errors) == 0), cleaned, errors
+
+    def create(self, payload: Dict[str, Any]) -> Tuple[int, str, str]:
+        ok, cleaned, errors = self.validate(payload)
+        if not ok:
+            return self.new_form(errors=errors, values=payload)
+
+        try:
+            new_id = self.repo.create(cleaned)
+        except ValueError:
+            errors["__all__"] = "Такой клиент уже существует (не уникален)"
+            return self.new_form(errors=errors, values=payload)
+
+        # Успех: HTML со скриптом, который уведомит главную вкладку и закроет окно
+        html = views.new_client_success_page(new_id)
+        return 201, "text/html; charset=utf-8", html
