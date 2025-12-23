@@ -191,7 +191,7 @@ class DatabaseConnection:
             cls._instance = cls(dsn)
         return cls._instance
 
-    def get_connection(self) -> psycopg2.extensions.connection:
+    def get_connection(self):
         """Вернуть объект соединения psycopg2."""
         return self.conn
 
@@ -610,7 +610,7 @@ class ClientRepFileDecorator:
 
 
 POSTGRES_USER = "postgres"
-POSTGRES_PASSWORD = "***"
+POSTGRES_PASSWORD = "postgres_password"
 POSTGRES_HOST = "localhost"
 POSTGRES_PORT = 5432
 TARGET_DB = "hair_salon"

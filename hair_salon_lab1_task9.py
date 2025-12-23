@@ -1,9 +1,13 @@
 import json
 from typing import Dict, Any
 
+
 class ClientShort:
     """Базовый класс с краткой информацией о клиенте"""
-    def __init__(self, last_name: str, first_name: str, father_name: str, haircut_counter: int):
+
+    def __init__(
+        self, last_name: str, first_name: str, father_name: str, haircut_counter: int
+    ):
 
         self._validate_name(last_name, "last_name")
         self._validate_name(first_name, "first_name")
@@ -17,7 +21,7 @@ class ClientShort:
 
     # Статические методы валидации
     @staticmethod
-    def _validate_name(name, field_name):
+    def _validate_name(name: str, field_name: str):
         """Валидация имени, фамилии и отчества"""
         if not isinstance(name, str):
             raise ValueError(f"{field_name} должен быть строкой")
@@ -29,7 +33,7 @@ class ClientShort:
             raise ValueError(f"{field_name} должен содержать только буквы и пробелы")
 
     @staticmethod
-    def _validate_haircut_counter(haircut_counter):
+    def _validate_haircut_counter(haircut_counter: int):
         """Валидация количества стрижек"""
         if not isinstance(haircut_counter, int):
             raise ValueError("haircut_counter должен быть целым числом")
@@ -53,22 +57,39 @@ class ClientShort:
         """Возвращает в формате 'Фамилия И.О., 1'"""
         return f"{self.__last_name.title()} {self.__first_name[0].upper()}.{self.__father_name[0].upper()}., {self.__haircut_counter}"
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Преобразование в словарь"""
+        return {
+            "last_name": self.__last_name,
+            "first_name": self.__first_name,
+            "father_name": self.__father_name,
+            "haircut_counter": self.__haircut_counter,
+        }
+
+    def to_json(self) -> str:
+        """Преобразование в JSON строку"""
+        return json.dumps(self.to_dict(), ensure_ascii=False)
+
     # Строковые представления
     def __str__(self) -> str:
         return self.to_string()
 
     def __repr__(self) -> str:
-        return (f"ClientShort(last_name='{self.__last_name}', first_name='{self.__first_name}', "
-                f"father_name='{self.__father_name}', haircut_counter={self.__haircut_counter})")
+        return (
+            f"ClientShort(last_name='{self.__last_name}', first_name='{self.__first_name}', "
+            f"father_name='{self.__father_name}', haircut_counter={self.__haircut_counter})"
+        )
 
     # Методы сравнения
     def __eq__(self, other) -> bool:
         if not isinstance(other, ClientShort):
             return False
-        return (self.__last_name == other.__last_name and
-                self.__first_name == other.__first_name and
-                self.__father_name == other.__father_name and
-                self.__haircut_counter == other.__haircut_counter)
+        return (
+            self.__last_name == other.__last_name
+            and self.__first_name == other.__first_name
+            and self.__father_name == other.__father_name
+            and self.__haircut_counter == other.__haircut_counter
+        )
 
 
 class Client(ClientShort):
@@ -80,15 +101,18 @@ class Client(ClientShort):
             # Обработка единичного аргумента
             data = self._parse_single_arg(args[0])
             self._init_from_data(data)
-        elif len(args) == 5:
+        elif len(args) == 6:
             # Обычное создание
-            self._init_from_data({
-                'first_name': args[0],
-                'last_name': args[1],
-                'father_name': args[2],
-                'haircut_counter': args[3],
-                'discount': args[4]
-            })
+            self._init_from_data(
+                {
+                    "first_name": args[0],
+                    "last_name": args[1],
+                    "father_name": args[2],
+                    "haircut_counter": args[3],
+                    "discount": args[4],
+                    "id": args[5],
+                }
+            )
         elif kwargs:
             # Создание из именованных параметров
             self._init_from_data(kwargs)
@@ -110,55 +134,88 @@ class Client(ClientShort):
     def _init_from_data(self, data: Dict[str, Any]):
         """Инициализация из данных"""
         # Проверка обязательных полей
-        required_fields = ['first_name', 'last_name', 'father_name', 'haircut_counter', 'discount']
+        required_fields = [
+            "first_name",
+            "last_name",
+            "father_name",
+            "haircut_counter",
+            "discount",
+            "id",
+        ]
         missing_fields = [field for field in required_fields if field not in data]
         if missing_fields:
             raise ValueError(f"Отсутствуют обязательные поля: {missing_fields}")
 
         # Валидация скидки
-        self._validate_discount(data['discount'])
+        self._validate_discount(data["discount"])
 
         # Вызов конструктора родительского класса
         super().__init__(
-            data['last_name'],
-            data['first_name'],
-            data['father_name'],
-            data['haircut_counter']
+            data["last_name"],
+            data["first_name"],
+            data["father_name"],
+            data["haircut_counter"],
         )
 
-        self.__discount = data['discount']
+        self.__discount = data["discount"]
+        self.__id = data["id"]
 
     @staticmethod
-    def _validate_discount(discount):
+    def _validate_discount(discount: int):
         """Валидация скидки"""
         if not isinstance(discount, (int, float)):
             raise ValueError("discount должен быть числом")
         if discount < 0 or discount > 100:
             raise ValueError("discount должен быть в диапазоне от 0 до 100")
 
+    @staticmethod
+    def _validate_id(id: int):
+        """Валидация id"""
+        if not isinstance(id, (int, float)):
+            raise ValueError("id должен быть числом")
+        if id < 0:
+            raise ValueError("id должен быть неотрицательным")
+
     # Геттеры
     def get_discount(self) -> int:
         return self.__discount
 
+    def get_id(self) -> int:
+        return self.__id
+
     # Сеттеры
-    def set_discount(self, discount):
+    def set_discount(self, discount: int):
         self._validate_discount(discount)
         self.__discount = discount
 
+    def set_id(self, id: int):
+        self._validate_id(id)
+        self.__id = id
+
     # Методы преобразования
     def to_string(self) -> str:
-        """Возвращает строку в формате: 'Годящев Д.М., 5, 0'"""
+        """Возвращает строку в формате: 'Годящев Д.М., dis: 5, id: 0'"""
         base_string = super().to_string()
-        return f"{base_string}, {self.__discount}"
+        return f"{base_string}, dis: {self.__discount}, id: {self.__id}"
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Преобразование в словарь с добавлением скидки и id"""
+        base_dict = super().to_dict()
+        base_dict["discount"] = self.__discount
+        base_dict["id"] = self.__id
+        return base_dict
+
+    def to_json(self) -> str:
+        """Преобразование в JSON строку"""
+        return json.dumps(self.to_dict(), ensure_ascii=False)
 
     def to_short_version(self) -> ClientShort:
-        """Создает краткую версию клиента (без скидки)"""
+        """Создает краткую версию клиента (без скидки и id)"""
         return ClientShort(
             self.get_last_name(),
             self.get_first_name(),
             self.get_father_name(),
-            self.get_haircut_counter()
+            self.get_haircut_counter(),
         )
 
     # Строковые представления
@@ -166,23 +223,25 @@ class Client(ClientShort):
         return self.to_string()
 
     def __repr__(self) -> str:
-        return (f"Client(last_name='{self.get_last_name()}', first_name='{self.get_first_name()}', "
-                f"father_name='{self.get_father_name()}', haircut_counter={self.get_haircut_counter()}, "
-                f"discount={self.__discount})")
+        return (
+            f"Client(last_name='{self.get_last_name()}', first_name='{self.get_first_name()}', "
+            f"father_name='{self.get_father_name()}', haircut_counter={self.get_haircut_counter()}, "
+            f"discount={self.__discount}', id={self.get_id()})"
+        )
 
     # Методы сравнения
     def __eq__(self, other) -> bool:
         if not isinstance(other, Client):
             return False
-        return (super().__eq__(other) and self.__discount == other.__discount)
+        return (
+            super().__eq__(other)
+            and self.__discount == other.__discount
+            and self.__id == other.__id
+        )
 
-    # Статические фабричные методы
-    @classmethod
-    def from_json(cls, json_str: str) -> 'Client':
-        """Создание клиента из JSON строки"""
-        return cls(json_str)
 
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Client':
-        """Создание клиента из словаря"""
-        return cls(data)
+# client_1 = Client('Андрей', 'Сушко', 'Ник', 13, 25, 1)
+# print(client_1)
+# print(str(client_1))
+# print(client_1.to_dict())
+# print(client_1.to_json())
