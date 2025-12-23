@@ -11,11 +11,12 @@ MAIN_JS = r"""
     });
   }
 
-  // обновить главную при успешном создании в другой вкладке
+  // обновить главную при успешном создании/обновлении в другой вкладке
   try {
     const bc = new BroadcastChannel("clients_channel");
     bc.onmessage = (ev) => {
-      if (ev.data && ev.data.type === "created") {
+      if (!ev.data) return;
+      if (ev.data.type === "created" || ev.data.type === "updated") {
         location.reload();
       }
     };
@@ -23,12 +24,13 @@ MAIN_JS = r"""
 
   // запасной вариант
   window.addEventListener("message", (ev) => {
-    if (ev.data && ev.data.type === "created") {
+    if (!ev.data) return;
+    if (ev.data.type === "created" || ev.data.type === "updated") {
       location.reload();
     }
   });
 
-  // delete / open details
+  // delete / edit
   if (table) {
     table.addEventListener("click", async (e) => {
       const tr = e.target.closest("tr");
@@ -41,57 +43,17 @@ MAIN_JS = r"""
         return;
       }
 
+      if (e.target.classList.contains("editbtn")) {
+        window.open(`/clients/${id}/edit`, "_blank");
+        return;
+      }
+
+      // (опционально) клик по фамилии тоже можно считать "edit"
       if (e.target.classList.contains("rowlink")) {
-        window.open(`/clients/${id}`, "_blank");
+        window.open(`/clients/${id}/edit`, "_blank");
       }
     });
   }
-})();
-"""
-
-DETAILS_JS = r"""
-(function () {
-  const id = window.__DETAILS__?.client_id;
-  if (!id) return;
-
-  const card = document.getElementById("card");
-  const form = document.getElementById("updateForm");
-
-  function renderClient(c) {
-    card.innerHTML = `
-      <div style="border:1px solid #ddd; padding:12px;">
-        <div><b>${c.last_name} ${c.first_name} ${c.father_name}</b></div>
-        <div>ID: ${c.id}</div>
-        <div>Стрижек: ${c.haircut_counter}</div>
-        <div>Скидка: ${c.discount}%</div>
-      </div>
-    `;
-    form.last_name.value = c.last_name;
-    form.first_name.value = c.first_name;
-    form.father_name.value = c.father_name;
-    form.haircut_counter.value = c.haircut_counter;
-    form.discount.value = c.discount;
-  }
-
-  function renderDeleted() {
-    card.innerHTML = "<b>Клиент удалён или не найден.</b>";
-  }
-
-  // Observer через SSE:
-  const es = new EventSource(`/api/clients/${id}/subscribe`);
-  es.addEventListener("client", (ev) => renderClient(JSON.parse(ev.data)));
-  es.addEventListener("deleted", () => renderDeleted());
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(form).entries());
-    const res = await fetch(`/api/clients/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) alert("Ошибка обновления (возможно клиент не уникален)");
-  });
 })();
 """
 
@@ -114,7 +76,37 @@ NEW_CLIENT_JS = r"""
       body: JSON.stringify(data),
     });
 
-    // сервер возвращает HTML (форма с ошибками или success page)
+    const html = await res.text();
+    document.open();
+    document.write(html);
+    document.close();
+  });
+})();
+"""
+
+EDIT_CLIENT_JS = r"""
+(function () {
+  const id = window.__EDIT__?.client_id;
+  if (!id) return;
+
+  const form = document.getElementById("editForm");
+  const closeBtn = document.getElementById("closeWin");
+
+  if (closeBtn) closeBtn.addEventListener("click", (e) => { e.preventDefault(); window.close(); });
+
+  if (!form) return;
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(form).entries());
+
+    // POST на HTML-эндпоинт /clients/<id>/edit
+    const res = await fetch(`/clients/${id}/edit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+
     const html = await res.text();
     document.open();
     document.write(html);

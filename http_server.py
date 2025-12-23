@@ -8,10 +8,9 @@ from router import Router
 
 
 class AppHandler(BaseHTTPRequestHandler):
-    router: Router = None  # задаётся в run()
+    router: Router = None
 
     def log_message(self, format, *args):
-        # оставить стандартные логи, но без traceback-шумов
         print("%s - - [%s] %s" % (self.client_address[0], self.log_date_time_string(), format % args))
 
     def _send(self, code: int, content_type: str, body: bytes) -> None:
@@ -22,7 +21,6 @@ class AppHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, socket.error):
-            # Клиент закрыл соединение — нормально (особенно на Windows)
             return
 
     def _read_json(self):
@@ -36,18 +34,18 @@ class AppHandler(BaseHTTPRequestHandler):
     def _serve_static(self) -> bool:
         if not self.path.startswith("/static/"):
             return False
-        name = self.path.replace("/static/", "", 1)
 
-        from static_files import MAIN_JS, DETAILS_JS, NEW_CLIENT_JS
+        name = self.path.replace("/static/", "", 1)
+        from static_files import MAIN_JS, NEW_CLIENT_JS, EDIT_CLIENT_JS
 
         if name == "main.js":
             self._send(200, "application/javascript; charset=utf-8", MAIN_JS.encode("utf-8"))
             return True
-        if name == "details.js":
-            self._send(200, "application/javascript; charset=utf-8", DETAILS_JS.encode("utf-8"))
-            return True
         if name == "new_client.js":
             self._send(200, "application/javascript; charset=utf-8", NEW_CLIENT_JS.encode("utf-8"))
+            return True
+        if name == "edit_client.js":
+            self._send(200, "application/javascript; charset=utf-8", EDIT_CLIENT_JS.encode("utf-8"))
             return True
 
         self._send(404, "text/plain; charset=utf-8", b"not found")
@@ -67,24 +65,6 @@ class AppHandler(BaseHTTPRequestHandler):
             self._send(404, "text/plain; charset=utf-8", b"not found")
             return
 
-        # SSE endpoint: handler сам пишет в wfile
-        if self.path.endswith("/subscribe"):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-            self.send_header("Cache-Control", "no-cache")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
-
-            def writer(b: bytes):
-                try:
-                    self.wfile.write(b)
-                    self.wfile.flush()
-                except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, socket.error):
-                    pass
-
-            handler(params["id"], writer)
-            return
-
         result = handler(**params)
         code, ctype, body = result
         self._send(code, ctype, body.encode("utf-8"))
@@ -96,15 +76,17 @@ class AppHandler(BaseHTTPRequestHandler):
             return
 
         payload = self._read_json()
+
+        # handler может ожидать payload + route params (id)
         result = handler(payload, **params) if params else handler(payload)
 
-        # HTML-ответ (code, ctype, body)
+        # HTML-ответ
         if isinstance(result, tuple) and len(result) == 3:
             code, ctype, body = result
             self._send(code, ctype, body.encode("utf-8"))
             return
 
-        # JSON-ответ (code, data)
+        # JSON-ответ
         code, data = result
         self._send(code, "application/json; charset=utf-8", json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
